@@ -12,8 +12,7 @@ from typing import Dict, List, Optional, Any
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =========================================================
-# PROXY POOL  — apne real proxies yahan daalo
-# Format: scheme://host:port   (http://1.2.3.4:8080)
+# PROXY POOL — apne real proxies yahan daalo
 # =========================================================
 
 PROXY_POOL: List[str] = [
@@ -71,8 +70,9 @@ HEADERS: Dict[str, str] = {
     "Accept-Encoding": "gzip",
 }
 
-MAX_PROXY_TRIES = 6
-TIMEOUT = 12
+# CHANGED: proxy tries 6 → 3, timeout 12 → (3, 6) tuple
+MAX_PROXY_TRIES = 3
+TIMEOUT = (3, 6)
 
 
 def insert_dot(email: str) -> str:
@@ -112,18 +112,11 @@ def send_otp(email: str) -> Dict[str, Any]:
             except Exception:
                 j = {"_raw": resp.text[:200]}
             return {"sent_to": target, "response": j, "via": proxy, "tried": tried}
-        except (requests.exceptions.ProxyError,
-                requests.exceptions.ConnectTimeout,
-                requests.exceptions.ReadTimeout,
-                requests.exceptions.SSLError,
-                requests.exceptions.ConnectionError) as e:
+        except Exception as e:              # CHANGED: broad catch
             last_exc = e
             _mark_dead(proxy)
-            time.sleep(0.15)
+            time.sleep(0.1)
             continue
-        except Exception as e:
-            last_exc = e
-            break
 
     try:
         resp = _raw_post(payload, None)
@@ -180,8 +173,8 @@ def banner() -> None:
          ╚═╝     ╚══════╝      ╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚══════╝{S}""")
     print(f"{C}{'═' * 17} FF EMAIL DOT-OTP SENDER {'═' * 17}{S}")
     print()
-    print(f" {C}⊙ {W}DEVELOPER : {C}ADITYA{S}")
-    print(f" {C}⊙ {W}MODE      : {G}GARENA KI MKC OTP (PROXY ROTATE){S}")
+    print(f" {C}⊙ {W}DEVELOPER : {C}@Flash_0710{S}")
+    print(f" {C}⊙ {W}MODE      : {G}SINGLE DOT-INSERT OTP (PROXY ROTATE){S}")
     print(f" {C}⊙ {W}PROXIES   : {G}{len(PROXY_POOL)} pooled / {len(PROXY_BLACKLIST)} dead{S}")
     print()
     print(f"{C}{'═' * 60}{S}")
