@@ -13,8 +13,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 app = Flask(__name__)
 
 # =========================================================
-# PROXY POOL  — apne real proxies yahan daalo
-# Format: scheme://host:port   (http://1.2.3.4:8080)
+# PROXY POOL — apne real proxies yahan daalo
 # =========================================================
 
 PROXY_POOL: List[str] = [
@@ -72,8 +71,9 @@ HEADERS: Dict[str, str] = {
     "Accept-Encoding": "gzip",
 }
 
-MAX_PROXY_TRIES = 6
-TIMEOUT = 12
+# CHANGED: proxy tries 6 → 3, timeout 12 → (3, 6) tuple
+MAX_PROXY_TRIES = 3
+TIMEOUT = (3, 6)
 
 
 def insert_dot(email: str) -> str:
@@ -113,18 +113,11 @@ def send_otp(email: str) -> Dict[str, Any]:
             except Exception:
                 j = {"_raw": resp.text[:200]}
             return {"sent_to": target, "response": j, "via": proxy, "tried": tried}
-        except (requests.exceptions.ProxyError,
-                requests.exceptions.ConnectTimeout,
-                requests.exceptions.ReadTimeout,
-                requests.exceptions.SSLError,
-                requests.exceptions.ConnectionError) as e:
+        except Exception as e:              # CHANGED: broad catch
             last_exc = e
             _mark_dead(proxy)
             time.sleep(0.1)
             continue
-        except Exception as e:
-            last_exc = e
-            break
 
     try:
         resp = _raw_post(payload, None)
@@ -159,36 +152,49 @@ def classify(j: Dict[str, Any]) -> str:
     return "unknown"
 
 
+# CHANGED: root route added (was 404 before)
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "service": "FF EMAIL DOT-OTP SENDER",
+        "developer": "@Flash_0710",
+        "endpoints": {
+            "otp": "/api?email=xxx@yyy.com",
+            "health": "/health"
+        }
+    }), 200
+
+
 @app.route("/api", methods=["GET", "POST"])
 def api():
-    if request.method == "GET":
-        email = request.args.get("email", "").strip()
-    else:
-        body = request.get_json(silent=True) or {}
-        email = str(body.get("email", "")).strip() or request.form.get("email", "").strip()
-
-    if not email or "@" not in email:
-        return jsonify({"ok": False, "error": "invalid_email"}), 400
-
+    # CHANGED: full handler wrapped in try/except — no more HTML 500
     try:
+        if request.method == "GET":
+            email = request.args.get("email", "").strip()
+        else:
+            body = request.get_json(silent=True) or {}
+            email = str(body.get("email", "")).strip() or request.form.get("email", "").strip()
+
+        if not email or "@" not in email:
+            return jsonify({"ok": False, "error": "invalid_email"}), 400
+
         result = send_otp(email)
+        j = result["response"]
+        status = classify(j)
+        ok = status == "success"
+
+        http_code = 200 if ok else (429 if status == "rate_limited" else 400 if status == "invalid_email" else 502)
+
+        return jsonify({
+            "ok": ok,
+            "status": status,
+            "sent_to": result["sent_to"],
+            "via": result.get("via"),
+            "tried": result.get("tried", []),
+            "raw": j,
+        }), http_code
     except Exception as e:
-        return jsonify({"ok": False, "error": "fatal", "detail": str(e)}), 500
-
-    j = result["response"]
-    status = classify(j)
-    ok = status == "success"
-
-    http_code = 200 if ok else (429 if status == "rate_limited" else 400 if status == "invalid_email" else 502)
-
-    return jsonify({
-        "ok": ok,
-        "status": status,
-        "sent_to": result["sent_to"],
-        "via": result.get("via"),
-        "tried": result.get("tried", []),
-        "raw": j,
-    }), http_code
+        return jsonify({"ok": False, "error": "handler_exception", "detail": str(e)}), 500
 
 
 @app.route("/health", methods=["GET"])
